@@ -1,10 +1,12 @@
 extern crate sdl2;
 extern crate time;
+extern crate rand;
 use std::fs::File;
 use std::io::prelude::*;
 use sdl2::event::*;
 use time::PreciseTime;
 use time::Duration;
+use rand::Rng;
 
 struct Chip8 {
     data_registers: [u8; 16],
@@ -34,14 +36,14 @@ fn main() {
         stack: Vec::with_capacity(16),
         delay_timer: 0,
         sound_timer: 0,
-        frame_buffer: [[0; 8]; 4]
+        frame_buffer: [[0; 8]; 4],
     };
     if let Some(file) = args.next() {
         match File::open(file) {
             Ok(mut input_file) => {
                 let len = chip8.memory.len();
                 let mut program_mem = &mut chip8.memory[0x200..len];
-                input_file.read(program_mem).unwrap();
+                input_file.read(program_mem);
             }
             Err(error) => {
                 println!("{}", error);
@@ -63,8 +65,9 @@ fn main() {
     sdl_renderer.set_logical_size(64, 32).unwrap();
     sdl_renderer.present();
     let mut v_blank_begin = PreciseTime::now();
-    let next_v_blank = Duration::microseconds(16667);
+    let next_v_blank = Duration::microseconds(16664);
     let mut running = true;
+    let mut rng = rand::thread_rng();
     while running {
         if v_blank_begin.to(PreciseTime::now()) < next_v_blank {
             let optcode_byte_1 = chip8.memory[chip8.program_counter as usize];
@@ -76,12 +79,12 @@ fn main() {
             match optcode_nibble_1 {
                 0 => {
                     if optcode_nibble_2 != 0x00 {
-                    println!("Unimplemented optcode");
-                    running = false;
+                        println!("Unimplemented optcode");
+                        running = false;
                     }
                     match optcode_byte_2 {
                         0xE0 => chip8.frame_buffer = [[0; 8]; 4],
-                        0xEE => { 
+                        0xEE => {
                             if let Some(x) = chip8.stack.pop() {
                                 chip8.program_counter = x;
                                 continue;
@@ -106,7 +109,100 @@ fn main() {
                     chip8.program_counter = convert_address(optcode_nibble_2, optcode_byte_2);
                     continue;
                 }
+                3 => {
+                    if chip8.data_registers[optcode_nibble_2 as usize] == optcode_byte_2 {
+                        chip8.program_counter += 2;
+                    }
+                }
+                4 => {
+                    if chip8.data_registers[optcode_nibble_2 as usize] != optcode_byte_2 {
+                        chip8.program_counter += 2;
+                    }
+                }
+                5 => {
+                    if chip8.data_registers[optcode_nibble_4 as usize] != 0 {
+                        println!("Unimplemented optcode");
+                        running = false;
+                    }
+                    if chip8.data_registers[optcode_nibble_2 as usize] ==
+                       chip8.data_registers[optcode_nibble_3 as usize] {
+                        chip8.program_counter += 2;
+                    }
+                }
                 6 => chip8.data_registers[optcode_nibble_2 as usize] = optcode_byte_2,
+                7 => chip8.data_registers[optcode_nibble_2 as usize] += optcode_byte_2,
+                8 => {
+                    match optcode_nibble_4 {
+                        0 => {
+                            chip8.data_registers[optcode_nibble_2 as usize] =
+                                chip8.data_registers[optcode_nibble_3 as usize]
+                        }
+                        1 => {
+                            chip8.data_registers[optcode_nibble_2 as usize] |=
+                                chip8.data_registers[optcode_nibble_3 as usize]
+                        }
+                        2 => {
+                            chip8.data_registers[optcode_nibble_2 as usize] &=
+                                chip8.data_registers[optcode_nibble_3 as usize]
+                        }
+                        3 => {
+                            chip8.data_registers[optcode_nibble_2 as usize] ^=
+                                chip8.data_registers[optcode_nibble_3 as usize]
+                        }
+                        4 => {
+                            let (added, overflow) = chip8.data_registers[optcode_nibble_2 as usize]
+                                .overflowing_add(chip8.data_registers[optcode_nibble_3 as usize]);
+                            chip8.data_registers[optcode_nibble_2 as usize] = added;
+                            chip8.data_registers[0xF] = overflow as u8;
+                        }
+                        5 => {
+                            let (subed, overflow) = chip8.data_registers[optcode_nibble_2 as usize]
+                                .overflowing_sub(chip8.data_registers[optcode_nibble_3 as usize]);
+                            chip8.data_registers[optcode_nibble_2 as usize] = subed;
+                            chip8.data_registers[0xF] = overflow as u8;
+                        }
+                        6 => {
+                            let lsb = chip8.data_registers[optcode_nibble_2 as usize] & 1;
+                            chip8.data_registers[optcode_nibble_2 as usize] >>= 1;
+                            chip8.data_registers[0xF] = lsb;
+                        }
+                        7 => {
+                            let (subed, overflow) = chip8.data_registers[optcode_nibble_3 as usize]
+                                .overflowing_sub(chip8.data_registers[optcode_nibble_2 as usize]);
+                            chip8.data_registers[optcode_nibble_2 as usize] = subed;
+                            chip8.data_registers[0xF] = overflow as u8;
+                        }
+                        0xE => {
+                            let msb = chip8.data_registers[optcode_nibble_2 as usize] & 0x80;
+                            chip8.data_registers[optcode_nibble_2 as usize] <<= 1;
+                            chip8.data_registers[0xF] = msb;
+                        }
+                        _ => {
+                            println!("Unimplemented optcode");
+                            running = false;
+                        }
+                    }
+                }
+                9 => {
+                    if chip8.data_registers[optcode_nibble_4 as usize] != 0 {
+                        println!("Unimplemented optcode");
+                        running = false;
+                    }
+                    if chip8.data_registers[optcode_nibble_2 as usize] !=
+                       chip8.data_registers[optcode_nibble_3 as usize] {
+                        chip8.program_counter += 2;
+                    }
+                }
+                0xA => chip8.address_register = convert_address(optcode_nibble_2, optcode_byte_2),
+                0xB => {
+                    chip8.program_counter = convert_address(optcode_nibble_2, optcode_byte_2);
+                    chip8.program_counter += chip8.data_registers[0] as u16;
+                    continue;
+                }
+                0xC => {
+                    let rand: u8 = rng.gen();
+                    chip8.data_registers[optcode_nibble_2 as usize] = rand & optcode_byte_2;
+                }
                 _ => {
                     println!("Unimplemented optcode");
                     running = false;
@@ -116,7 +212,7 @@ fn main() {
         } else {
             match sdl_event_pump.wait_event() {
                 Event::Quit { timestamp: _ } => running = false,
-                _ => {},
+                _ => {}
             }
             sdl_renderer.clear();
             sdl_renderer.present();
