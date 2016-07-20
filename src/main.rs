@@ -16,6 +16,9 @@ struct Chip8 {
     memory: [u8; 0x1000],
     program_counter: u16,
     stack: Vec<u16>,
+    delay_timer: u8,
+    sound_timer: u8,
+    frame_buffer: [[u8; 8]; 4], // Bit set white, bit unset black
 }
 
 fn main() {
@@ -27,6 +30,9 @@ fn main() {
         memory: [0; 0x1000],
         program_counter: 0x200, // Entry point of most programs
         stack: Vec::with_capacity(16),
+        delay_timer: 0,
+        sound_timer: 0,
+        frame_buffer: [[0; 8]; 4]
     };
     if let Some(file) = args.next() {
         match File::open(file) {
@@ -66,6 +72,12 @@ fn main() {
             }
             sdl_renderer.clear();
             sdl_renderer.present();
+            if chip8.delay_timer > 0 {
+                chip8.delay_timer -= 1;
+            }
+            if chip8.sound_timer > 0 {
+                chip8.sound_timer -= 1;
+            }
             v_blank_begin = PreciseTime::now();
         }
     }
