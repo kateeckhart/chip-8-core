@@ -1,3 +1,5 @@
+extern crate sdl2;
+extern crate time;
 use std::fs::File;
 use std::io::prelude::*;
 use sdl2::event::*;
@@ -5,7 +7,8 @@ use sdl2::pixels::*;
 use sdl2::render::*;
 use sdl2::rect::*;
 use sdl2::surface::*;
-extern crate sdl2;
+use time::PreciseTime;
+use time::Duration;
 
 struct Chip8 {
     data_registers: [u8; 16],
@@ -45,17 +48,25 @@ fn main() {
     let sdl_video = sdl.video().unwrap();
     let sdl_window = sdl_video.window("Chip-8", 64 * 8, 32 * 8)
         .resizable()
-        .opengl()
         .build()
         .unwrap();
     let mut sdl_event_pump = sdl.event_pump().unwrap();
-    let mut sdl_renderer = sdl_window.renderer().build().unwrap();
+    let mut sdl_renderer = sdl_window.renderer().present_vsync().build().unwrap();
     sdl_renderer.set_logical_size(64, 32).unwrap();
-    loop {
-        if let Event::Quit { timestamp: _ } = sdl_event_pump.wait_event() {
-            break;
+    sdl_renderer.present();
+    let mut v_blank_begin = PreciseTime::now();
+    let next_v_blank = Duration::microseconds(16667);
+    let mut running = true;
+    while running {
+        if v_blank_begin.to(PreciseTime::now()) < next_v_blank {
+        } else {
+            match sdl_event_pump.wait_event() {
+                Event::Quit { timestamp: _ } => running = false,
+                _ => {},
+            }
+            sdl_renderer.clear();
+            sdl_renderer.present();
+            v_blank_begin = PreciseTime::now();
         }
-        sdl_renderer.clear();
-        sdl_renderer.present();
     }
 }
