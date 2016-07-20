@@ -3,10 +3,6 @@ extern crate time;
 use std::fs::File;
 use std::io::prelude::*;
 use sdl2::event::*;
-use sdl2::pixels::*;
-use sdl2::render::*;
-use sdl2::rect::*;
-use sdl2::surface::*;
 use time::PreciseTime;
 use time::Duration;
 
@@ -19,6 +15,12 @@ struct Chip8 {
     delay_timer: u8,
     sound_timer: u8,
     frame_buffer: [[u8; 8]; 4], // Bit set white, bit unset black
+}
+
+fn convert_address(nibble: u8, byte: u8) -> u16 {
+    let mut address = nibble as u16;
+    address <<= 8;
+    address | byte as u16
 }
 
 fn main() {
@@ -65,6 +67,52 @@ fn main() {
     let mut running = true;
     while running {
         if v_blank_begin.to(PreciseTime::now()) < next_v_blank {
+            let optcode_byte_1 = chip8.memory[chip8.program_counter as usize];
+            let optcode_nibble_1 = optcode_byte_1 >> 4;
+            let optcode_nibble_2 = optcode_byte_1 & 0x0f;
+            let optcode_byte_2 = chip8.memory[chip8.program_counter as usize + 1];
+            let optcode_nibble_3 = optcode_byte_2 >> 4;
+            let optcode_nibble_4 = optcode_byte_2 & 0x0f;
+            match optcode_nibble_1 {
+                0 => {
+                    if optcode_nibble_2 != 0x00 {
+                    println!("Unimplemented optcode");
+                    running = false;
+                    }
+                    match optcode_byte_2 {
+                        0xE0 => chip8.frame_buffer = [[0; 8]; 4],
+                        0xEE => { 
+                            if let Some(x) = chip8.stack.pop() {
+                                chip8.program_counter = x;
+                                continue;
+                            } else {
+                                println!("Stack underflow");
+                                running = false;
+                            }
+                        }
+                        0xFF => println!("Good"), // Debug optcode
+                        _ => {
+                            println!("Unimplemented optcode");
+                            running = false;
+                        }
+                    }
+                }
+                1 => {
+                    chip8.program_counter = convert_address(optcode_nibble_2, optcode_byte_2);
+                    continue;
+                }
+                2 => {
+                    chip8.stack.push(chip8.program_counter + 2);
+                    chip8.program_counter = convert_address(optcode_nibble_2, optcode_byte_2);
+                    continue;
+                }
+                6 => chip8.data_registers[optcode_nibble_2 as usize] = optcode_byte_2,
+                _ => {
+                    println!("Unimplemented optcode");
+                    running = false;
+                }
+            }
+            chip8.program_counter += 2;
         } else {
             match sdl_event_pump.wait_event() {
                 Event::Quit { timestamp: _ } => running = false,
@@ -81,4 +129,5 @@ fn main() {
             v_blank_begin = PreciseTime::now();
         }
     }
+    println!("{0:x}", chip8.program_counter);
 }
