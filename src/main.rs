@@ -4,6 +4,7 @@ extern crate rand;
 use std::fs::File;
 use std::io::prelude::*;
 use sdl2::event::*;
+use sdl2::rect::*;
 use time::PreciseTime;
 use time::Duration;
 use rand::Rng;
@@ -16,7 +17,7 @@ struct Chip8 {
     stack: Vec<u16>,
     delay_timer: u8,
     sound_timer: u8,
-    frame_buffer: [[u8; 8]; 4], // Bit set white, bit unset black
+    frame_buffer: [[u8; 8]; 32], // Bit set white, bit unset black
 }
 
 fn convert_address(nibble: u8, byte: u8) -> u16 {
@@ -36,14 +37,14 @@ fn main() {
         stack: Vec::with_capacity(16),
         delay_timer: 0,
         sound_timer: 0,
-        frame_buffer: [[0; 8]; 4],
+        frame_buffer: [[0; 8]; 32],
     };
     if let Some(file) = args.next() {
         match File::open(file) {
             Ok(mut input_file) => {
                 let len = chip8.memory.len();
                 let mut program_mem = &mut chip8.memory[0x200..len];
-                input_file.read(program_mem);
+                input_file.read(program_mem).unwrap();
             }
             Err(error) => {
                 println!("{}", error);
@@ -83,7 +84,7 @@ fn main() {
                         running = false;
                     }
                     match optcode_byte_2 {
-                        0xE0 => chip8.frame_buffer = [[0; 8]; 4],
+                        0xE0 => chip8.frame_buffer = [[0; 8]; 32],
                         0xEE => {
                             if let Some(x) = chip8.stack.pop() {
                                 chip8.program_counter = x;
@@ -163,6 +164,7 @@ fn main() {
                         }
                         6 => {
                             let lsb = chip8.data_registers[optcode_nibble_2 as usize] & 1;
+                            chip8.data_registers[optcode_nibble_2 as usize] -= lsb;
                             chip8.data_registers[optcode_nibble_2 as usize] >>= 1;
                             chip8.data_registers[0xF] = lsb;
                         }
@@ -174,6 +176,7 @@ fn main() {
                         }
                         0xE => {
                             let msb = chip8.data_registers[optcode_nibble_2 as usize] & 0x80;
+                            chip8.data_registers[optcode_nibble_2 as usize] -= msb;
                             chip8.data_registers[optcode_nibble_2 as usize] <<= 1;
                             chip8.data_registers[0xF] = msb;
                         }
@@ -203,6 +206,30 @@ fn main() {
                     let rand: u8 = rng.gen();
                     chip8.data_registers[optcode_nibble_2 as usize] = rand & optcode_byte_2;
                 }
+                0xD => {
+                    chip8.data_registers[0xf] = 0;
+                    for i in chip8.memory[chip8.address_register as usize..chip8.address_register as usize + optcode_nibble_4 as usize]
+                             .iter()
+                             .enumerate() {
+                        let (y_possiton, y) = i;
+                        for x_possiton in 0..8 {
+                            let x_possiton = x_possiton + chip8.data_registers[optcode_nibble_2 as usize];
+                            let x_byte = x_possiton / 8;
+                            let x_bit = x_possiton % 8;
+                            let filiped_x_bit = 7 - x_bit;
+                            let x_bit = 1 << x_bit;
+                            let filiped_x_bit = 1 << filiped_x_bit;
+                            if y & x_bit != 0 {
+                                if chip8.frame_buffer[y_possiton][x_byte as usize] & filiped_x_bit != 0 {
+                                    chip8.frame_buffer[y_possiton][x_byte as usize] -= filiped_x_bit;
+                                    chip8.data_registers[0xf] = 1;
+                                } else {
+                                    chip8.frame_buffer[y_possiton][x_byte as usize] |= filiped_x_bit;
+                                }
+                            }
+                        }
+                    }
+                }
                 _ => {
                     println!("Unimplemented optcode");
                     running = false;
@@ -215,6 +242,20 @@ fn main() {
                 _ => {}
             }
             sdl_renderer.clear();
+            for i in chip8.frame_buffer.iter().enumerate() {
+                let (y_cord, y) = i;
+                for i in y.iter().enumerate() {
+                    let (x_cord, x) = i;
+                    let x_cord = x_cord * 8;
+                    for b in 0..8 {
+                        let x_cord = x_cord + b;
+                        let b = 1 << b;
+                        if x & b != 0 {
+                            sdl_renderer.draw_point(Point::new(x_cord as i32, y_cord as i32)).unwrap();
+                        }
+                    }
+                }
+            }
             sdl_renderer.present();
             if chip8.delay_timer > 0 {
                 chip8.delay_timer -= 1;
