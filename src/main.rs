@@ -244,9 +244,10 @@ fn main() {
             }
             chip8.program_counter += 2;
         } else {
-            match sdl_event_pump.wait_event() {
-                Event::Quit { timestamp: _ } => running = false,
+            if let Some(event) = sdl_event_pump.poll_event() {
+                match event { Event::Quit { timestamp: _ } => running = false,
                 _ => {}
+                }
             }
             sdl_renderer.clear();
             for i in chip8.frame_buffer.iter().enumerate() {
