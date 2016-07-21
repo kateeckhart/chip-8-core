@@ -15,7 +15,7 @@ struct Chip8 {
     stack: Vec<u16>,
     delay_timer: u8,
     sound_timer: u8,
-    frame_buffer: [[u8; 8]; 32], // Bit set white, bit unset black
+    frame_buffer: [[u8; 64]; 32], // Bit set white, bit unset black
     pushed_key: Option<u8>,
 }
 
@@ -36,7 +36,7 @@ fn main() {
         stack: Vec::with_capacity(16),
         delay_timer: 0,
         sound_timer: 0,
-        frame_buffer: [[0; 8]; 32],
+        frame_buffer: [[0; 64]; 32],
         pushed_key: None,
     };
     if let Some(file) = args.next() {
@@ -84,7 +84,7 @@ fn main() {
                         running = false;
                     }
                     match optcode_byte_2 {
-                        0xE0 => chip8.frame_buffer = [[0; 8]; 32],
+                        0xE0 => chip8.frame_buffer = [[0; 64]; 32],
                         0xEE => {
                             if let Some(x) = chip8.stack.pop() {
                                 chip8.program_counter = x;
@@ -215,36 +215,18 @@ fn main() {
                     chip8.address_register as usize + optcode_nibble_4 as usize]
                              .iter()
                              .enumerate() {
-                        let (mut y_position_ram, _) = i;
-                        let y_position_buffer = y_position_ram + chip8.data_registers[optcode_nibble_3 as usize] as usize;
-                        if y_position_buffer >= 32 {
-                            break;
-                        }
-                        let offset = chip8.data_registers[optcode_nibble_2 as usize] as usize;
-                        let offset_bytes = offset / 8;
-                        let offset_bits = offset % 8;
-                        let mut ram_line = chip8.memory[y_position_ram + chip8.address_register as usize] as u16;
-                        ram_line <<= offset_bits;
-                        let mut frame_line = 0;
-                        if offset_bytes <= 6 {
-                            frame_line = chip8.frame_buffer[y_position_buffer][offset_bytes + 1] as u16;
-                        } else {
-                            frame_line = chip8.frame_buffer[y_position_buffer][0] as u16;
-                        }
-                        frame_line <<= 8;
-                        frame_line |= chip8.frame_buffer[y_position_buffer][offset_bytes] as u16;
-                        if frame_line & ram_line != 0 {
-                            chip8.data_registers[0xF] = 1;
-                        }
-                        frame_line ^= ram_line;
-                        let byte1 = frame_line as u8;
-                        chip8.frame_buffer[y_position_buffer][offset_bytes] = byte1;
-                        frame_line >>= 8;
-                        let byte2 = frame_line as u8;
-                        if offset_bytes == 7 {
-                            chip8.frame_buffer[y_position_buffer][0] = byte2;
-                        } else {
-                            chip8.frame_buffer[y_position_buffer][offset_bytes + 1] = byte2;
+                        let (mut y_position, y) = i;
+                        y_position += chip8.data_registers[optcode_nibble_3 as usize] as usize;
+                        for b in 0..8 {
+                            let b_shifted = 1 << b;
+                            let mut bit = y & b_shifted;
+                            bit >>= b;
+                            if chip8.frame_buffer[y_position][chip8.data_registers[optcode_nibble_2 as usize] as usize + b as usize] ^ bit != 0 {
+                                chip8.frame_buffer[y_position][chip8.data_registers[optcode_nibble_2 as usize] as usize + b as usize] = 1;
+                            } else {
+                                chip8.frame_buffer[y_position][chip8.data_registers[optcode_nibble_2 as usize] as usize + b as usize] = 0;
+                                chip8.data_registers[0xF] = 1;
+                            }
                         }
                     }
                 }
@@ -364,15 +346,9 @@ fn main() {
                 let (y_cord, y) = i;
                 for i in y.iter().enumerate() {
                     let (x_cord, x) = i;
-                    let x_cord = x_cord * 8;
-                    for b in 0..8 {
-                        let fliped_b = 7 - b;
-                        let x_cord = x_cord + b;
-                        let b = 1 << b;
-                        if x & b != 0 {
-                            sdl_renderer.draw_point(Point::new(x_cord as i32, y_cord as i32))
-                                .unwrap();
-                        }
+                    if x & 1 != 0 {
+                        sdl_renderer.draw_point(Point::new(x_cord as i32, y_cord as i32))
+                            .unwrap();
                     }
                 }
             }
