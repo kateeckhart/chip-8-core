@@ -211,20 +211,27 @@ fn main() {
                     for i in chip8.memory[chip8.address_register as usize..chip8.address_register as usize + optcode_nibble_4 as usize]
                              .iter()
                              .enumerate() {
-                        let (y_possiton, y) = i;
-                        for x_possiton in 0..8 {
-                            let x_possiton = x_possiton + chip8.data_registers[optcode_nibble_2 as usize];
-                            let x_byte = x_possiton / 8;
-                            let x_bit = x_possiton % 8;
-                            let filiped_x_bit = 7 - x_bit;
-                            let x_bit = 1 << x_bit;
-                            let filiped_x_bit = 1 << filiped_x_bit;
-                            if y & x_bit != 0 {
-                                if chip8.frame_buffer[y_possiton][x_byte as usize] & filiped_x_bit != 0 {
-                                    chip8.frame_buffer[y_possiton][x_byte as usize] -= filiped_x_bit;
+                        let (mut y_position, y) = i;
+                        y_position += chip8.data_registers[optcode_nibble_3 as usize] as usize;
+                        for x_position_ram in 0..8 {
+                            let mut x_position_buff = x_position_ram + chip8.data_registers[optcode_nibble_2 as usize];
+                            let mut x_position_buff_bytes = x_position_buff % 8;
+                            let mut x_position_buff_bits = x_position_buff / 8;
+                            x_position_buff_bits = 7 - x_position_buff_bits;
+                            x_position_buff_bytes *= 8;
+                            x_position_buff = x_position_buff_bits + x_position_buff_bytes;
+                            let x_byte = x_position_buff / 8;
+                            let mut x_bit_ram = x_position_ram % 8;
+                            let mut x_bit_buff = x_position_buff % 8;
+                            x_bit_ram = 1 << x_bit_ram;
+                            x_bit_buff = 7 - x_bit_buff;
+                            x_bit_buff = 1 << x_bit_buff;
+                            if y & x_bit_ram != 0 {
+                                if chip8.frame_buffer[y_position][x_byte as usize] & x_bit_buff != 0 {
+                                    chip8.frame_buffer[y_position][x_byte as usize] ^= x_bit_buff;
                                     chip8.data_registers[0xf] = 1;
                                 } else {
-                                    chip8.frame_buffer[y_possiton][x_byte as usize] |= filiped_x_bit;
+                                    chip8.frame_buffer[y_position][x_byte as usize] |= x_bit_buff;
                                 }
                             }
                         }
@@ -251,7 +258,8 @@ fn main() {
                         let x_cord = x_cord + b;
                         let b = 1 << b;
                         if x & b != 0 {
-                            sdl_renderer.draw_point(Point::new(x_cord as i32, y_cord as i32)).unwrap();
+                            sdl_renderer.draw_point(Point::new(x_cord as i32, y_cord as i32))
+                                .unwrap();
                         }
                     }
                 }
@@ -266,5 +274,4 @@ fn main() {
             v_blank_begin = PreciseTime::now();
         }
     }
-    println!("{0:x}", chip8.program_counter);
 }
