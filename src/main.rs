@@ -69,6 +69,8 @@ fn main() {
     let mut rng = rand::thread_rng();
     let cycles_rate = 10;
     let mut cycles_left = cycles_rate;
+    let mut font = File::open("font.bin").unwrap();
+    font.read(&mut chip8.memory).unwrap();
     while running {
         if cycles_left > 0 {
             cycles_left -= 1;
@@ -276,7 +278,7 @@ fn main() {
                         0x15 => chip8.delay_timer = chip8.data_registers[optcode_nibble_2 as usize],
                         0x18 => chip8.sound_timer = chip8.data_registers[optcode_nibble_2 as usize],
                         0x1E => chip8.address_register += chip8.data_registers[optcode_nibble_2 as usize] as u16,
-                        0x29 => chip8.address_register = 0, // Todo add font
+                        0x29 => chip8.address_register = chip8.data_registers[optcode_nibble_2 as usize] as u16 * 5, // Todo add font
                         0x33 => {
                             let mut nums = chip8.data_registers[optcode_nibble_2 as usize].to_string().into_bytes();
                             for mut x in nums.iter_mut() {
