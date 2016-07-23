@@ -17,12 +17,257 @@ struct Chip8 {
     sound_timer: u8,
     frame_buffer: [[u8; 64]; 32], // Bit set white, bit unset black
     pushed_key: Option<u8>,
+    running: bool,
+    rng: rand::ThreadRng,
 }
 
 fn convert_address(nibble: u8, byte: u8) -> u16 {
     let mut address = nibble as u16;
     address <<= 8;
     address | byte as u16
+}
+
+fn run_optcode(chip8: &mut Chip8) {
+    let optcode_byte_1 = chip8.memory[chip8.program_counter as usize];
+    let optcode_nibble_1 = optcode_byte_1 >> 4;
+    let optcode_nibble_2 = optcode_byte_1 & 0x0f;
+    let optcode_byte_2 = chip8.memory[chip8.program_counter as usize + 1];
+    let optcode_nibble_3 = optcode_byte_2 >> 4;
+    let optcode_nibble_4 = optcode_byte_2 & 0x0f;
+    match optcode_nibble_1 {
+        0 => {
+            if optcode_nibble_2 != 0x00 {
+                println!("Unimplemented optcode");
+                chip8.running = false;
+            }
+            match optcode_byte_2 {
+                0xE0 => chip8.frame_buffer = [[0; 64]; 32],
+                0xEE => {
+                    if let Some(x) = chip8.stack.pop() {
+                        chip8.program_counter = x;
+                        return;
+                    } else {
+                        println!("Stack underflow");
+                        chip8.running = false;
+                    }
+                }
+                _ => {
+                    println!("Unimplemented optcode");
+                    chip8.running = false;
+                }
+            }
+        }
+        1 => {
+            chip8.program_counter = convert_address(optcode_nibble_2, optcode_byte_2);
+            return;
+        }
+        2 => {
+            chip8.stack.push(chip8.program_counter + 2);
+            chip8.program_counter = convert_address(optcode_nibble_2, optcode_byte_2);
+            return;
+        }
+        3 => {
+            if chip8.data_registers[optcode_nibble_2 as usize] == optcode_byte_2 {
+                chip8.program_counter += 2;
+            }
+        }
+        4 => {
+            if chip8.data_registers[optcode_nibble_2 as usize] != optcode_byte_2 {
+                chip8.program_counter += 2;
+            }
+        }
+        5 => {
+            if chip8.data_registers[optcode_nibble_4 as usize] != 0 {
+                println!("Unimplemented optcode");
+                chip8.running = false;
+            }
+            if chip8.data_registers[optcode_nibble_2 as usize] ==
+               chip8.data_registers[optcode_nibble_3 as usize] {
+                chip8.program_counter += 2;
+            }
+        }
+        6 => chip8.data_registers[optcode_nibble_2 as usize] = optcode_byte_2,
+        7 => {
+            chip8.data_registers[optcode_nibble_2 as usize] =
+                chip8.data_registers[optcode_nibble_2 as usize].wrapping_add(optcode_byte_2)
+        }
+        8 => {
+            match optcode_nibble_4 {
+                0 => {
+                    chip8.data_registers[optcode_nibble_2 as usize] =
+                        chip8.data_registers[optcode_nibble_3 as usize]
+                }
+                1 => {
+                    chip8.data_registers[optcode_nibble_2 as usize] |=
+                        chip8.data_registers[optcode_nibble_3 as usize]
+                }
+                2 => {
+                    chip8.data_registers[optcode_nibble_2 as usize] &=
+                        chip8.data_registers[optcode_nibble_3 as usize]
+                }
+                3 => {
+                    chip8.data_registers[optcode_nibble_2 as usize] ^=
+                        chip8.data_registers[optcode_nibble_3 as usize]
+                }
+                4 => {
+                    let (added, overflow) = chip8.data_registers[optcode_nibble_2 as usize]
+                        .overflowing_add(chip8.data_registers[optcode_nibble_3 as usize]);
+                    chip8.data_registers[optcode_nibble_2 as usize] = added;
+                    chip8.data_registers[0xF] = overflow as u8;
+                }
+                5 => {
+                    let (subed, overflow) = chip8.data_registers[optcode_nibble_2 as usize]
+                        .overflowing_sub(chip8.data_registers[optcode_nibble_3 as usize]);
+                    chip8.data_registers[optcode_nibble_2 as usize] = subed;
+                    chip8.data_registers[0xF] = overflow as u8;
+                }
+                6 => {
+                    let lsb = chip8.data_registers[optcode_nibble_2 as usize] & 1;
+                    chip8.data_registers[optcode_nibble_2 as usize] -= lsb;
+                    chip8.data_registers[optcode_nibble_2 as usize] >>= 1;
+                    chip8.data_registers[0xF] = lsb;
+                }
+                7 => {
+                    let (subed, overflow) = chip8.data_registers[optcode_nibble_3 as usize]
+                        .overflowing_sub(chip8.data_registers[optcode_nibble_2 as usize]);
+                    chip8.data_registers[optcode_nibble_2 as usize] = subed;
+                    chip8.data_registers[0xF] = overflow as u8;
+                }
+                0xE => {
+                    let mut msb = chip8.data_registers[optcode_nibble_2 as usize] & 0x80;
+                    chip8.data_registers[optcode_nibble_2 as usize] -= msb;
+                    chip8.data_registers[optcode_nibble_2 as usize] <<= 1;
+                    msb >>= 7;
+                    chip8.data_registers[0xF] = msb;
+                }
+                _ => {
+                    println!("Unimplemented optcode");
+                    chip8.running = false;
+                }
+            }
+        }
+        9 => {
+            if chip8.data_registers[optcode_nibble_4 as usize] != 0 {
+                println!("Unimplemented optcode");
+                chip8.running = false;
+            }
+            if chip8.data_registers[optcode_nibble_2 as usize] !=
+               chip8.data_registers[optcode_nibble_3 as usize] {
+                chip8.program_counter += 2;
+            }
+        }
+        0xA => chip8.address_register = convert_address(optcode_nibble_2, optcode_byte_2),
+        0xB => {
+            chip8.program_counter = convert_address(optcode_nibble_2, optcode_byte_2);
+            chip8.program_counter += chip8.data_registers[0] as u16;
+            return;
+        }
+        0xC => {
+            let rand: u8 = chip8.rng.gen();
+            chip8.data_registers[optcode_nibble_2 as usize] = rand & optcode_byte_2;
+        }
+        0xD => {
+            chip8.data_registers[0xF] = 0;
+            for i in chip8.memory[chip8.address_register as usize..chip8.address_register as usize +
+                                                                   optcode_nibble_4 as usize]
+                .iter()
+                .enumerate() {
+                let (mut y_position, y) = i;
+                y_position += chip8.data_registers[optcode_nibble_3 as usize] as usize;
+                if y_position > 0x1F {
+                    return;
+                }
+                for b in 0..8 {
+                    let b_shifted = 1 << b;
+                    let mut bit = y & b_shifted;
+                    bit >>= b;
+                    if bit == 1 {
+                        let inverted = 7 - b;
+                        let mut x_position =
+                            chip8.data_registers[optcode_nibble_2 as usize] as usize +
+                            inverted as usize;
+                        x_position %= 0x40;
+                        if chip8.frame_buffer[y_position][x_position] ^ bit == 0 {
+                            chip8.frame_buffer[y_position][x_position] = 0;
+                            chip8.data_registers[0xF] = 1;
+                        } else {
+                            chip8.frame_buffer[y_position][x_position] = 1;
+                        }
+                    }
+                }
+            }
+        }
+        0xE => {
+            match optcode_byte_2 {
+                0x9E => {
+                    if let Some(key) = chip8.pushed_key {
+                        if key == chip8.data_registers[optcode_nibble_2 as usize] {
+                            chip8.program_counter += 2;
+                        }
+                    }
+                }
+                0xA1 => {
+                    if let Some(key) = chip8.pushed_key {
+                        if key != chip8.data_registers[optcode_nibble_2 as usize] {
+                            chip8.program_counter += 2;
+                        }
+                    } else {
+                        chip8.program_counter += 2;
+                    }
+                }
+                _ => {
+                    println!("Unimplemented optcode");
+                    chip8.running = false;
+                }
+            }
+        }
+        0xF => {
+            match optcode_byte_2 {
+                0x07 => chip8.data_registers[optcode_nibble_2 as usize] = chip8.delay_timer,
+                0x0A => {
+                    if let Some(key) = chip8.pushed_key {
+                        chip8.data_registers[optcode_nibble_2 as usize] = key
+                    } else {
+                        return;
+                    }
+                }
+                0x15 => chip8.delay_timer = chip8.data_registers[optcode_nibble_2 as usize],
+                0x18 => chip8.sound_timer = chip8.data_registers[optcode_nibble_2 as usize],
+                0x1E => {
+                    chip8.address_register += chip8.data_registers[optcode_nibble_2 as usize] as u16
+                }
+                0x29 => {
+                    chip8.address_register =
+                        chip8.data_registers[optcode_nibble_2 as usize] as u16 * 5
+                }
+                0x33 => {
+                    let nums = chip8.data_registers[optcode_nibble_2 as usize];
+                    chip8.memory[chip8.address_register as usize] = nums / 100;
+                    chip8.memory[chip8.address_register as usize + 1] = nums % 100 / 10;
+                    chip8.memory[chip8.address_register as usize + 2] = nums % 100 % 10;
+                }
+                0x55 => {
+                    for i in 0..optcode_nibble_2 as usize + 1 {
+                        chip8.memory[chip8.address_register as usize + i] = chip8.data_registers[i];
+                    }
+                }
+                0x65 => {
+                    for i in 0..optcode_nibble_2 as usize + 1 {
+                        chip8.data_registers[i] = chip8.memory[chip8.address_register as usize + i];
+                    }
+                }
+                _ => {
+                    println!("Unimplemented optcode");
+                    chip8.running = false;
+                }
+            }
+        }
+        _ => {
+            println!("Unimplemented optcode");
+            chip8.running = false;
+        }
+    }
+    chip8.program_counter += 2;
 }
 
 fn main() {
@@ -38,6 +283,8 @@ fn main() {
         sound_timer: 0,
         frame_buffer: [[0; 64]; 32],
         pushed_key: None,
+        running: true,
+        rng: rand::thread_rng(),
     };
     if let Some(file) = args.next() {
         match File::open(file) {
@@ -65,264 +312,19 @@ fn main() {
     let mut sdl_renderer = sdl_window.renderer().present_vsync().build().unwrap();
     sdl_renderer.set_logical_size(64, 32).unwrap();
     sdl_renderer.present();
-    let mut running = true;
-    let mut rng = rand::thread_rng();
-    let cycles_rate = 10;
+    let cycles_rate = 50;
     let mut cycles_left = cycles_rate;
     let mut font = File::open("font.bin").unwrap();
     font.read(&mut chip8.memory).unwrap();
-    while running {
+    while chip8.running {
         if cycles_left > 0 {
             cycles_left -= 1;
-            let optcode_byte_1 = chip8.memory[chip8.program_counter as usize];
-            let optcode_nibble_1 = optcode_byte_1 >> 4;
-            let optcode_nibble_2 = optcode_byte_1 & 0x0f;
-            let optcode_byte_2 = chip8.memory[chip8.program_counter as usize + 1];
-            let optcode_nibble_3 = optcode_byte_2 >> 4;
-            let optcode_nibble_4 = optcode_byte_2 & 0x0f;
-            match optcode_nibble_1 {
-                0 => {
-                    if optcode_nibble_2 != 0x00 {
-                        println!("Unimplemented optcode");
-                        running = false;
-                    }
-                    match optcode_byte_2 {
-                        0xE0 => chip8.frame_buffer = [[0; 64]; 32],
-                        0xEE => {
-                            if let Some(x) = chip8.stack.pop() {
-                                chip8.program_counter = x;
-                                continue;
-                            } else {
-                                println!("Stack underflow");
-                                running = false;
-                            }
-                        }
-                        _ => {
-                            println!("Unimplemented optcode");
-                            running = false;
-                        }
-                    }
-                }
-                1 => {
-                    chip8.program_counter = convert_address(optcode_nibble_2, optcode_byte_2);
-                    continue;
-                }
-                2 => {
-                    chip8.stack.push(chip8.program_counter + 2);
-                    chip8.program_counter = convert_address(optcode_nibble_2, optcode_byte_2);
-                    continue;
-                }
-                3 => {
-                    if chip8.data_registers[optcode_nibble_2 as usize] == optcode_byte_2 {
-                        chip8.program_counter += 2;
-                    }
-                }
-                4 => {
-                    if chip8.data_registers[optcode_nibble_2 as usize] != optcode_byte_2 {
-                        chip8.program_counter += 2;
-                    }
-                }
-                5 => {
-                    if chip8.data_registers[optcode_nibble_4 as usize] != 0 {
-                        println!("Unimplemented optcode");
-                        running = false;
-                    }
-                    if chip8.data_registers[optcode_nibble_2 as usize] ==
-                       chip8.data_registers[optcode_nibble_3 as usize] {
-                        chip8.program_counter += 2;
-                    }
-                }
-                6 => chip8.data_registers[optcode_nibble_2 as usize] = optcode_byte_2,
-                7 =>
-                 chip8.data_registers[optcode_nibble_2 as usize] = 
-                 chip8.data_registers[optcode_nibble_2 as usize] 
-                 .wrapping_add(optcode_byte_2),
-                8 => {
-                    match optcode_nibble_4 {
-                        0 => {
-                            chip8.data_registers[optcode_nibble_2 as usize] =
-                                chip8.data_registers[optcode_nibble_3 as usize]
-                        }
-                        1 => {
-                            chip8.data_registers[optcode_nibble_2 as usize] |=
-                                chip8.data_registers[optcode_nibble_3 as usize]
-                        }
-                        2 => {
-                            chip8.data_registers[optcode_nibble_2 as usize] &=
-                                chip8.data_registers[optcode_nibble_3 as usize]
-                        }
-                        3 => {
-                            chip8.data_registers[optcode_nibble_2 as usize] ^=
-                                chip8.data_registers[optcode_nibble_3 as usize]
-                        }
-                        4 => {
-                            let (added, overflow) = chip8.data_registers[optcode_nibble_2 as usize]
-                                .overflowing_add(chip8.data_registers[optcode_nibble_3 as usize]);
-                            chip8.data_registers[optcode_nibble_2 as usize] = added;
-                            chip8.data_registers[0xF] = overflow as u8;
-                        }
-                        5 => {
-                            let (subed, overflow) = chip8.data_registers[optcode_nibble_2 as usize]
-                                .overflowing_sub(chip8.data_registers[optcode_nibble_3 as usize]);
-                            chip8.data_registers[optcode_nibble_2 as usize] = subed;
-                            chip8.data_registers[0xF] = overflow as u8;
-                        }
-                        6 => {
-                            let lsb = chip8.data_registers[optcode_nibble_2 as usize] & 1;
-                            chip8.data_registers[optcode_nibble_2 as usize] -= lsb;
-                            chip8.data_registers[optcode_nibble_2 as usize] >>= 1;
-                            chip8.data_registers[0xF] = lsb;
-                        }
-                        7 => {
-                            let (subed, overflow) = chip8.data_registers[optcode_nibble_3 as usize]
-                                .overflowing_sub(chip8.data_registers[optcode_nibble_2 as usize]);
-                            chip8.data_registers[optcode_nibble_2 as usize] = subed;
-                            chip8.data_registers[0xF] = overflow as u8;
-                        }
-                        0xE => {
-                            let mut msb = chip8.data_registers[optcode_nibble_2 as usize] & 0x80;
-                            chip8.data_registers[optcode_nibble_2 as usize] -= msb;
-                            chip8.data_registers[optcode_nibble_2 as usize] <<= 1;
-                            msb >>= 7;
-                            chip8.data_registers[0xF] = msb;
-                        }
-                        _ => {
-                            println!("Unimplemented optcode");
-                            running = false;
-                        }
-                    }
-                }
-                9 => {
-                    if chip8.data_registers[optcode_nibble_4 as usize] != 0 {
-                        println!("Unimplemented optcode");
-                        running = false;
-                    }
-                    if chip8.data_registers[optcode_nibble_2 as usize] !=
-                       chip8.data_registers[optcode_nibble_3 as usize] {
-                        chip8.program_counter += 2;
-                    }
-                }
-                0xA => chip8.address_register = convert_address(optcode_nibble_2, optcode_byte_2),
-                0xB => {
-                    chip8.program_counter = convert_address(optcode_nibble_2, optcode_byte_2);
-                    chip8.program_counter += chip8.data_registers[0] as u16;
-                    continue;
-                }
-                0xC => {
-                    let rand: u8 = rng.gen();
-                    chip8.data_registers[optcode_nibble_2 as usize] = rand & optcode_byte_2;
-                }
-                0xD => {
-                    chip8.data_registers[0xF] = 0;
-                    for i in chip8.memory[chip8.address_register as usize..
-                    chip8.address_register as usize + optcode_nibble_4 as usize]
-                             .iter()
-                             .enumerate() {
-                        let (mut y_position, y) = i;
-                        y_position += chip8.data_registers[optcode_nibble_3 as usize] as usize;
-                        if y_position > 0x1F {
-                            continue;
-                        }
-                        for b in 0..8 {
-                            let b_shifted = 1 << b;
-                            let mut bit = y & b_shifted;
-                            bit >>= b;
-                            if bit == 1 {
-                                let inverted = 7 - b;
-                                let mut x_position = chip8.data_registers[optcode_nibble_2 as usize] as usize + inverted as usize;
-                                x_position %= 0x40;
-                                if chip8.frame_buffer[y_position][x_position] ^ bit == 0 {
-                                    chip8.frame_buffer[y_position][x_position] = 0;
-                                    chip8.data_registers[0xF] = 1;
-                                } else {
-                                    chip8.frame_buffer[y_position][x_position] = 1;
-                                }
-                            }
-                        }
-                    }
-                }
-                0xE => {
-                    match optcode_byte_2 {
-                        0x9E => {
-                            if let Some(key) = chip8.pushed_key {
-                                if key == chip8.data_registers[optcode_nibble_2 as usize] {
-                                    chip8.program_counter += 2;
-                                }
-                            }
-                        }
-                        0xA1 => {
-                            if let Some(key) = chip8.pushed_key {
-                                if key != chip8.data_registers[optcode_nibble_2 as usize] {
-                                    chip8.program_counter += 2;
-                                }
-                            } else {
-                                chip8.program_counter += 2;
-                            }
-                        }
-                        _ => {
-                            println!("Unimplemented optcode");
-                            running = false;
-                        }
-                    }
-                }
-                0xF => {
-                    match optcode_byte_2 {
-                        0x07 => chip8.data_registers[optcode_nibble_2 as usize] = chip8.delay_timer,
-                        0x0A => {
-                            if let Some(key) = chip8.pushed_key {
-                                chip8.data_registers[optcode_nibble_2 as usize] = key
-                            } else {
-                                continue;
-                            }
-                        }
-                        0x15 => chip8.delay_timer = chip8.data_registers[optcode_nibble_2 as usize],
-                        0x18 => chip8.sound_timer = chip8.data_registers[optcode_nibble_2 as usize],
-                        0x1E => chip8.address_register += chip8.data_registers[optcode_nibble_2 as usize] as u16,
-                        0x29 => chip8.address_register = chip8.data_registers[optcode_nibble_2 as usize] as u16 * 5, // Todo add font
-                        0x33 => {
-                            let mut nums = chip8.data_registers[optcode_nibble_2 as usize].to_string().into_bytes();
-                            for mut x in nums.iter_mut() {
-                                *x -= b'0'
-                            }
-                            let offset = 3 - nums.len();
-                            for i in nums.iter().enumerate() {
-                                let (c, n) = i;
-                                let c = c + offset;
-                                chip8.memory[chip8.address_register as usize + c] = *n;
-                            } 
-                        }
-                        0x55 => {
-                            for i in 0..optcode_nibble_2 as usize + 1 {
-                                chip8.memory[chip8.address_register as usize + i] = chip8.data_registers[0 + i];
-                            }
-                        }
-                        0x65 => {
-                            for i in 0..optcode_nibble_2 as usize + 1 {
-                                chip8.data_registers[0 + i] = chip8.memory[chip8.address_register as usize + i];
-                            }
-                        }
-                        _ => {
-                            println!("Unimplemented optcode");
-                            running = false;
-                        }
-                    }
-                }
-                _ => {
-                    println!("Unimplemented optcode");
-                    running = false;
-                }
-            }
-            chip8.program_counter += 2;
+            run_optcode(&mut chip8);
         } else {
             while let Some(event) = sdl_event_pump.poll_event() {
-                match event { 
-                    Event::Quit { timestamp: _ } => running = false,
-                    Event::KeyDown { timestamp: _,
-                                     window_id: _,
-                                     keycode: kc,
-                                     scancode: _,
-                                     keymod: _,
-                                     repeat: _ } => {
+                match event {
+                    Event::Quit { .. } => chip8.running = false,
+                    Event::KeyDown { keycode: kc, .. } => {
                         if let Some(key) = kc {
                             match key {
                                 Keycode::Num0 => chip8.pushed_key = Some(0),
@@ -345,12 +347,7 @@ fn main() {
                             }
                         }
                     }
-                    Event::KeyUp { timestamp: _,
-                                   window_id: _,
-                                   keycode: _,
-                                   scancode: _,
-                                   keymod: _,
-                                   repeat: _ } => chip8.pushed_key = None,
+                    Event::KeyUp { .. } => chip8.pushed_key = None,
                     _ => {}
                 }
             }
