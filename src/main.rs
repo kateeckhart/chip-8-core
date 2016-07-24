@@ -84,7 +84,7 @@ fn main() {
     let mut sdl_renderer = sdl_window.renderer().present_vsync().build().unwrap();
     sdl_renderer.set_logical_size(64, 32).unwrap();
     sdl_renderer.present();
-    let chip8 = Chip8::new(key_wrap);
+    let mut chip8 = Chip8::new(key_wrap);
     if let Some(file) = args.next() {
         match File::open(file) {
             Ok(mut input_file) => {
@@ -105,14 +105,12 @@ fn main() {
             break;
         }
         sdl_renderer.clear();
-        for event in chip8.0.borrow_mut().key_wrapper.0.poll_iter() {
+        for event in chip8.key_wrapper.0.poll_iter() {
             if let Event::Quit { .. } = event {
                 return;
             }
         }
-        let inner = chip8.0.borrow();
-        let frame_buffer = inner.frame_buffer;
-        for i in frame_buffer.iter().enumerate() {
+        for i in chip8.frame_buffer.iter().enumerate() {
             let (y_cord, y) = i;
             for i in y.iter().enumerate() {
                 let (x_cord, x) = i;

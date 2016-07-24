@@ -3,7 +3,8 @@ use rand::Rng;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::Error;
-use std::cell::RefCell;
+use std::ops::Deref;
+use std::ops::DerefMut;
 
 pub trait KeyWrapper {
     fn is_pushed(&self, u8) -> Result<bool, &'static str>;
@@ -23,7 +24,7 @@ pub struct Chip8Unwraped<T: KeyWrapper> {
     pub key_wrapper: T,
 }
 
-pub struct Chip8<T: KeyWrapper>(pub RefCell<Chip8Unwraped<T>>);
+pub struct Chip8<T: KeyWrapper>(pub Chip8Unwraped<T>);
 
 fn convert_address(nibble: u8, byte: u8) -> u16 {
     let mut address = nibble as u16;
@@ -32,7 +33,7 @@ fn convert_address(nibble: u8, byte: u8) -> u16 {
 }
 
 impl<T: KeyWrapper> Chip8Unwraped<T> {
-    fn new(key_wrapper: T) -> Chip8Unwraped<T> {
+    pub fn new(key_wrapper: T) -> Chip8Unwraped<T> {
         let mut chip8 = Chip8Unwraped {
             data_registers: [0; 16],
             address_register: 0,
@@ -49,12 +50,12 @@ impl<T: KeyWrapper> Chip8Unwraped<T> {
         chip8.memory[0..font.len()].copy_from_slice(font);
         chip8
     }
-    fn load_prog_from_file(&mut self, input_file: &mut File) -> Result<usize, Error> {
+    pub fn load_prog_from_file(&mut self, input_file: &mut File) -> Result<usize, Error> {
         let len = self.memory.len();
         let mut program_mem = &mut self.memory[0x200..len];
         input_file.read(program_mem)
     }
-    fn run_optcode(&mut self) -> Result<(), &'static str> {
+    pub fn run_optcode(&mut self) -> Result<(), &'static str> {
         let optcode_byte_1 = self.memory[self.program_counter as usize];
         let optcode_nibble_1 = optcode_byte_1 >> 4;
         let optcode_nibble_2 = optcode_byte_1 & 0x0f;
@@ -293,27 +294,31 @@ impl<T: KeyWrapper> Chip8Unwraped<T> {
 
 impl<T: KeyWrapper> Chip8<T> {
     pub fn new(key_wrapper: T) -> Chip8<T> {
-        Chip8(RefCell::new(Chip8Unwraped::new(key_wrapper)))
+        Chip8(Chip8Unwraped::new(key_wrapper))
     }
-    pub fn run_optcode(&self) -> Result<(), &'static str> {
-        let mut inner = self.0.borrow_mut();
-        inner.run_optcode()
-    }
-    pub fn run_vblank(&self) -> Result<(), &str> {
+    pub fn run_vblank(&mut self) -> Result<(), &str> {
         for _ in 0..11 {
             try!(self.run_optcode())
         }
-        let mut inner = self.0.borrow_mut();
-        if inner.delay_timer > 0 {
-            inner.delay_timer -= 1;
+        if self.delay_timer > 0 {
+            self.delay_timer -= 1;
         }
-        if inner.sound_timer > 0 {
-            inner.sound_timer -= 1;
+        if self.sound_timer > 0 {
+            self.sound_timer -= 1;
         }
         Ok(())
     }
-    pub fn load_prog_from_file(&self, input_file: &mut File) -> Result<usize, Error> {
-        let mut inner = self.0.borrow_mut();
-        inner.load_prog_from_file(input_file)
+}
+
+impl<T: KeyWrapper> Deref for Chip8<T> {
+    type Target = Chip8Unwraped<T>;
+    fn deref(&self) -> &Chip8Unwraped<T> {
+        &self.0
+    }
+}
+
+impl<T: KeyWrapper> DerefMut for Chip8<T> {
+    fn deref_mut(&mut self) -> &mut Chip8Unwraped<T> {
+        &mut self.0
     }
 }
