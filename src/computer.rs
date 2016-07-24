@@ -24,7 +24,7 @@ pub struct Chip8Unwraped<T: KeyWrapper> {
     pub key_wrapper: T,
 }
 
-pub struct Chip8<T: KeyWrapper>(pub Chip8Unwraped<T>);
+pub struct Chip8<T: KeyWrapper>(Chip8Unwraped<T>);
 
 fn convert_address(nibble: u8, byte: u8) -> u16 {
     let mut address = nibble as u16;
