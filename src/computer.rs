@@ -229,8 +229,7 @@ impl<T: KeyWrapper> Chip8Unwraped<T> {
                     }
                     0xA1 => {
                         if !try!(self.key_wrapper
-                            .is_pushed(self.data_registers[optcode_nibble_2 as usize])) ==
-                           false {
+                            .is_pushed(self.data_registers[optcode_nibble_2 as usize])){
                             self.program_counter += 2;
                         }
                     }
