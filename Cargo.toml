@@ -5,5 +5,4 @@ authors = ["Alex Eckhart <eckhartalex@gmail.com>"]
 
 [dependencies]
 sdl2 = "0.21"
-time = "0.1"
 rand = "0.3"
