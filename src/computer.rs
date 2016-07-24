@@ -140,9 +140,10 @@ impl<T: KeyWrapper> Chip8Unwraped<T> {
                         self.data_registers[0xF] = overflow as u8;
                     }
                     5 => {
-                        let (subed, overflow) = self.data_registers[optcode_nibble_2 as usize]
+                        let (subed, mut overflow) = self.data_registers[optcode_nibble_2 as usize]
                             .overflowing_sub(self.data_registers[optcode_nibble_3 as usize]);
                         self.data_registers[optcode_nibble_2 as usize] = subed;
+                        overflow = !overflow; // Inverted borrow_flag
                         self.data_registers[0xF] = overflow as u8;
                     }
                     6 => {
@@ -152,9 +153,10 @@ impl<T: KeyWrapper> Chip8Unwraped<T> {
                         self.data_registers[0xF] = lsb;
                     }
                     7 => {
-                        let (subed, overflow) = self.data_registers[optcode_nibble_3 as usize]
+                        let (subed, mut overflow) = self.data_registers[optcode_nibble_3 as usize]
                             .overflowing_sub(self.data_registers[optcode_nibble_2 as usize]);
                         self.data_registers[optcode_nibble_2 as usize] = subed;
+                        overflow = !overflow; // Inverted borrow_flag
                         self.data_registers[0xF] = overflow as u8;
                     }
                     0xE => {
@@ -209,7 +211,7 @@ impl<T: KeyWrapper> Chip8Unwraped<T> {
                             let mut x_position =
                                 self.data_registers[optcode_nibble_2 as usize] as usize +
                                 inverted as usize;
-                            x_position %= 0x40;
+                            x_position %= 0x40; // The screen wraps around
                             if self.frame_buffer[y_position][x_position] ^ bit == 0 {
                                 self.frame_buffer[y_position][x_position] = 0;
                                 self.data_registers[0xF] = 1;
