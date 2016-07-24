@@ -46,7 +46,7 @@ impl<T: KeyWrapper> Chip8Unwraped<T> {
             key_wrapper: key_wrapper,
         };
         let font = include_bytes!("font.bin");
-        &mut chip8.memory[0..font.len()].copy_from_slice(font);
+        chip8.memory[0..font.len()].copy_from_slice(font);
         chip8
     }
     fn load_prog_from_file(&mut self, input_file: &mut File) -> Result<usize, Error> {
@@ -228,7 +228,7 @@ impl<T: KeyWrapper> Chip8Unwraped<T> {
                         }
                     }
                     0xA1 => {
-                        if try!(self.key_wrapper
+                        if !try!(self.key_wrapper
                             .is_pushed(self.data_registers[optcode_nibble_2 as usize])) ==
                            false {
                             self.program_counter += 2;
