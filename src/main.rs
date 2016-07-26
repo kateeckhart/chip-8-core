@@ -68,6 +68,43 @@ impl KeyWrapper for EventPump {
     }
 }
 
+struct SimpleAudioDevice {
+    current_feq: f32,
+    feq_inc: f32,
+    feq_target: f32,
+    volume: f32,
+}
+
+impl AudioCallback for SimpleAudioDevice {
+    type Channel = f32;
+    
+    fn callback(&mut self, out: &mut [f32]) {
+        for x in out {
+            if self.feq_inc.signum() == 1.0 {
+                if (self.current_feq - self.feq_target) > 0.000005 {
+                    self.feq_target = -self.feq_target;
+                    self.feq_inc = -self.feq_inc;
+                }
+            } else if (self.current_feq - self.feq_target) < 0.000005 {
+                self.feq_target = -self.feq_target;
+                self.feq_inc = -self.feq_inc;
+            }
+            *x = self.volume / self.current_feq;
+            self.current_feq += self.feq_inc;
+        }
+    }
+}
+
+impl<CB: AudioCallback> AudioWrapper for AudioDevice<CB> {
+    fn play(&mut self) {
+        self.resume();
+    }
+    
+    fn stop(&mut self) {
+        self.pause();
+    }
+}
+
 fn main() {
     let mut args = std::env::args();
     args.next(); // We do not need the path of the executable.
@@ -78,10 +115,24 @@ fn main() {
         .build()
         .unwrap();
     let sdl_event_pump = sdl.event_pump().unwrap();
+    let sdl_audio = sdl.audio().unwrap();
+    let spec = AudioSpecDesired {
+        freq: None,
+        channels: Some(1),
+        samples: None
+    };
     let mut sdl_renderer = sdl_window.renderer().present_vsync().build().unwrap();
     sdl_renderer.set_logical_size(64, 32).unwrap();
     sdl_renderer.present();
-    let mut chip8 = Chip8::new(sdl_event_pump);
+    let sdl_audio_device = sdl_audio.open_playback(None, &spec, |spec| { 
+        SimpleAudioDevice {
+            current_feq: 587.33,
+            feq_inc: spec.freq as f32 / 587.33,
+            feq_target: 587.33,
+            volume: 1.00,
+        }
+    }).unwrap();
+    let mut chip8 = Chip8::new(sdl_event_pump, sdl_audio_device);
     if let Some(file) = args.next() {
         match File::open(file) {
             Ok(mut input_file) => {

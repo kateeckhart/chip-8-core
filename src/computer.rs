@@ -14,7 +14,7 @@ pub trait AudioWrapper {
     fn stop(&mut self);
 }
 
-pub struct Chip8<T: KeyWrapper> {
+pub struct Chip8<T: KeyWrapper, A: AudioWrapper> {
     data_registers: [u8; 16],
     address_register: u16,
     memory: [u8; 0x1000],
@@ -25,6 +25,7 @@ pub struct Chip8<T: KeyWrapper> {
     pub frame_buffer: [[u8; 64]; 32], // Byte == zero black, byte == one white
     rng: rand::ThreadRng,
     pub key_wrapper: T,
+    audio_wrapper: A,
 }
 
 fn convert_address(nibble: u8, byte: u8) -> u16 {
@@ -33,8 +34,8 @@ fn convert_address(nibble: u8, byte: u8) -> u16 {
     address | byte as u16
 }
 
-impl<T: KeyWrapper> Chip8<T> {
-    pub fn new(key_wrapper: T) -> Chip8<T> {
+impl<T: KeyWrapper, A: AudioWrapper> Chip8<T, A> {
+    pub fn new(key_wrapper: T, audio_wrapper: A) -> Chip8<T, A> {
         let mut chip8 = Chip8 {
             data_registers: [0; 16],
             address_register: 0,
@@ -46,6 +47,7 @@ impl<T: KeyWrapper> Chip8<T> {
             frame_buffer: [[0; 64]; 32],
             rng: rand::thread_rng(),
             key_wrapper: key_wrapper,
+            audio_wrapper: audio_wrapper,
         };
         let font = include_bytes!("font.bin");
         chip8.memory[0..font.len()].copy_from_slice(font);
@@ -253,7 +255,12 @@ impl<T: KeyWrapper> Chip8<T> {
                         }
                     }
                     0x15 => self.delay_timer = self.data_registers[optcode_nibble_2 as usize],
-                    0x18 => self.sound_timer = self.data_registers[optcode_nibble_2 as usize],
+                    0x18 => { 
+                        self.sound_timer = self.data_registers[optcode_nibble_2 as usize];
+                        if self.sound_timer > 0 {
+                            self.audio_wrapper.play();
+                        }
+                    } 
                     0x1E => {
                         self.address_register +=
                             self.data_registers[optcode_nibble_2 as usize] as u16
@@ -302,6 +309,9 @@ impl<T: KeyWrapper> Chip8<T> {
         }
         if self.sound_timer > 0 {
             self.sound_timer -= 1;
+            if self.sound_timer == 0 {
+                self.audio_wrapper.stop()
+            }
         }
         Ok(())
     }
