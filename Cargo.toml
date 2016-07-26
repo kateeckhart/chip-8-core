@@ -1,5 +1,5 @@
 [package]
-name = "chip-8-core"
+name = "chip_8_core"
 version = "1.0.0"
 authors = ["Alex Eckhart <eckhartalex@gmail.com>"]
 
