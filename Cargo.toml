@@ -1,8 +1,7 @@
 [package]
-name = "chip-8"
-version = "0.1.0"
+name = "chip-8-core"
+version = "1.0.0"
 authors = ["Alex Eckhart <eckhartalex@gmail.com>"]
 
 [dependencies]
-sdl2 = "0.21"
 rand = "0.3"
