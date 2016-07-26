@@ -3,28 +3,29 @@ use rand::Rng;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::Error;
-use std::ops::Deref;
-use std::ops::DerefMut;
 
 pub trait KeyWrapper {
     fn is_pushed(&self, u8) -> Result<bool, &'static str>;
     fn get_key(&self) -> Option<u8>;
 }
 
-pub struct Chip8Unwraped<T: KeyWrapper> {
+pub trait AudioWrapper {
+    fn play(&mut self);
+    fn stop(&mut self);
+}
+
+pub struct Chip8<T: KeyWrapper> {
     data_registers: [u8; 16],
     address_register: u16,
     memory: [u8; 0x1000],
     program_counter: u16,
     stack: Vec<u16>,
     delay_timer: u8,
-    sound_timer: u8,
+    pub sound_timer: u8,
     pub frame_buffer: [[u8; 64]; 32], // Byte == zero black, byte == one white
     rng: rand::ThreadRng,
     pub key_wrapper: T,
 }
-
-pub struct Chip8<T: KeyWrapper>(Chip8Unwraped<T>);
 
 fn convert_address(nibble: u8, byte: u8) -> u16 {
     let mut address = nibble as u16;
@@ -32,9 +33,9 @@ fn convert_address(nibble: u8, byte: u8) -> u16 {
     address | byte as u16
 }
 
-impl<T: KeyWrapper> Chip8Unwraped<T> {
-    pub fn new(key_wrapper: T) -> Chip8Unwraped<T> {
-        let mut chip8 = Chip8Unwraped {
+impl<T: KeyWrapper> Chip8<T> {
+    pub fn new(key_wrapper: T) -> Chip8<T> {
+        let mut chip8 = Chip8 {
             data_registers: [0; 16],
             address_register: 0,
             memory: [0; 0x1000],
@@ -292,12 +293,6 @@ impl<T: KeyWrapper> Chip8Unwraped<T> {
         self.program_counter += 2;
         Ok(())
     }
-}
-
-impl<T: KeyWrapper> Chip8<T> {
-    pub fn new(key_wrapper: T) -> Chip8<T> {
-        Chip8(Chip8Unwraped::new(key_wrapper))
-    }
     pub fn run_vblank(&mut self) -> Result<(), &str> {
         for _ in 0..11 {
             try!(self.run_optcode())
@@ -309,18 +304,5 @@ impl<T: KeyWrapper> Chip8<T> {
             self.sound_timer -= 1;
         }
         Ok(())
-    }
-}
-
-impl<T: KeyWrapper> Deref for Chip8<T> {
-    type Target = Chip8Unwraped<T>;
-    fn deref(&self) -> &Chip8Unwraped<T> {
-        &self.0
-    }
-}
-
-impl<T: KeyWrapper> DerefMut for Chip8<T> {
-    fn deref_mut(&mut self) -> &mut Chip8Unwraped<T> {
-        &mut self.0
     }
 }

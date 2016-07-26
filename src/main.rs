@@ -4,10 +4,10 @@ use std::fs::File;
 use sdl2::rect::*;
 use sdl2::keyboard::*;
 use sdl2::event::*;
+use sdl2::audio::*;
 use sdl2::EventPump;
 mod computer;
-use computer::Chip8;
-use computer::KeyWrapper;
+use computer::*;
 
 fn hex_to_scan_code(hex: u8) -> Result<Scancode, &'static str> {
     match hex {
@@ -53,15 +53,13 @@ fn scan_code_to_hex(scancode: Scancode) -> Option<u8> {
     }
 }
 
-struct SdlKeyStateWrapper(EventPump);
-
-impl KeyWrapper for SdlKeyStateWrapper {
+impl KeyWrapper for EventPump {
     fn is_pushed(&self, key: u8) -> Result<bool, &'static str> {
         let scancode = try!(hex_to_scan_code(key));
-        Ok(self.0.keyboard_state().is_scancode_pressed(scancode))
+        Ok(self.keyboard_state().is_scancode_pressed(scancode))
     }
     fn get_key(&self) -> Option<u8> {
-        for key in self.0.keyboard_state().pressed_scancodes() {
+        for key in self.keyboard_state().pressed_scancodes() {
             if let Some(hex) = scan_code_to_hex(key) {
                 return Some(hex);
             }
@@ -80,11 +78,10 @@ fn main() {
         .build()
         .unwrap();
     let sdl_event_pump = sdl.event_pump().unwrap();
-    let key_wrap = SdlKeyStateWrapper(sdl_event_pump);
     let mut sdl_renderer = sdl_window.renderer().present_vsync().build().unwrap();
     sdl_renderer.set_logical_size(64, 32).unwrap();
     sdl_renderer.present();
-    let mut chip8 = Chip8::new(key_wrap);
+    let mut chip8 = Chip8::new(sdl_event_pump);
     if let Some(file) = args.next() {
         match File::open(file) {
             Ok(mut input_file) => {
@@ -105,7 +102,7 @@ fn main() {
             break;
         }
         sdl_renderer.clear();
-        for event in chip8.key_wrapper.0.poll_iter() {
+        for event in chip8.key_wrapper.poll_iter() {
             if let Event::Quit { .. } = event {
                 return;
             }
