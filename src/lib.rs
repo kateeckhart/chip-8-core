@@ -28,7 +28,7 @@ pub struct Chip8<T: KeyWrapper, A: AudioWrapper> {
     rng: rand::ThreadRng,
     pub key_wrapper: T,
     pub audio_wrapper: A,
-    pub running: bool,
+    pub running,
 }
 
 fn convert_address(nibble: u8, byte: u8) -> u16 {
