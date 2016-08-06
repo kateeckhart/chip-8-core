@@ -319,14 +319,14 @@ impl<T: KeyWrapper, A: AudioWrapper> Chip8<T, A> {
         Ok(())
     }
     pub fn reboot(&mut self) {
-        self.data_registers.copy_from_slice([0; 16]);
+        self.data_registers.copy_from_slice(&[0; 16]);
         self.address_register = 0;
-        self.memory.copy_from_slice([0; 0x1000]);
+        self.memory.copy_from_slice(&[0; 0x1000]);
         self.program_counter = 0x200; // Entry point of most programs
         self.stack.clear();
         self.delay_timer = 0;
         self.sound_timer = 0;
-        self.frame_buffer.copy_from_slice([[0; 64]; 32]);
+        self.frame_buffer.copy_from_slice(&[[0; 64]; 32]);
         self.memory[0..FONT.len()].copy_from_slice(FONT);
     }
 }
