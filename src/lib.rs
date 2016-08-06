@@ -28,6 +28,7 @@ pub struct Chip8<T: KeyWrapper, A: AudioWrapper> {
     rng: rand::ThreadRng,
     pub key_wrapper: T,
     pub audio_wrapper: A,
+    pub running,
 }
 
 fn convert_address(nibble: u8, byte: u8) -> u16 {
@@ -52,6 +53,7 @@ impl<T: KeyWrapper, A: AudioWrapper> Chip8<T, A> {
             rng: rand::thread_rng(),
             key_wrapper: key_wrapper,
             audio_wrapper: audio_wrapper,
+            running: false,
         };
         chip8.memory[0..FONT.len()].copy_from_slice(FONT);
         chip8
@@ -59,6 +61,7 @@ impl<T: KeyWrapper, A: AudioWrapper> Chip8<T, A> {
     pub fn load_prog_from_file(&mut self, input_file: &mut File) -> Result<usize, Error> {
         let len = self.memory.len();
         let mut program_mem = &mut self.memory[0x200..len];
+        self.running = true;
         input_file.read(program_mem)
     }
     pub fn run_optcode(&mut self) -> Result<(), &'static str> {
