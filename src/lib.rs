@@ -36,7 +36,7 @@ fn convert_address(nibble: u8, byte: u8) -> u16 {
     address | byte as u16
 }
 
-static FONT: &[u8] = include_bytes!("font.bin");
+static FONT: &[u8]<'static>s = include_bytes!("font.bin");
 
 impl<T: KeyWrapper, A: AudioWrapper> Chip8<T, A> {
     pub fn new(key_wrapper: T, audio_wrapper: A) -> Chip8<T, A> {
