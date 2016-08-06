@@ -53,7 +53,7 @@ impl<T: KeyWrapper, A: AudioWrapper> Chip8<T, A> {
             key_wrapper: key_wrapper,
             audio_wrapper: audio_wrapper,
         };
-        chip8.memory[0..FONT.len()].copy_from_slice(font);
+        chip8.memory[0..FONT.len()].copy_from_slice(FONT);
         chip8
     }
     pub fn load_prog_from_file(&mut self, input_file: &mut File) -> Result<usize, Error> {
@@ -327,6 +327,6 @@ impl<T: KeyWrapper, A: AudioWrapper> Chip8<T, A> {
         self.delay_timer = 0;
         self.sound_timer = 0;
         self.frame_buffer.copy_from_slice([[0; 64]; 32]);
-        self.memory[0..FONT.len()].copy_from_slice(font);
+        self.memory[0..FONT.len()].copy_from_slice(FONT);
     }
 }
