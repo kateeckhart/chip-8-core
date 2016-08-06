@@ -1,4 +1,5 @@
 extern crate rand;
+
 use rand::Rng;
 use std::fs::File;
 use std::io::prelude::*;
@@ -22,7 +23,8 @@ pub struct Chip8<T: KeyWrapper, A: AudioWrapper> {
     stack: Vec<u16>,
     delay_timer: u8,
     pub sound_timer: u8,
-    pub frame_buffer: [[u8; 64]; 32], // Byte == zero black, byte == one white
+    pub frame_buffer: [[u8; 64]; 32],
+    // Byte == zero black, byte == one white
     rng: rand::ThreadRng,
     pub key_wrapper: T,
     pub audio_wrapper: A,
@@ -33,6 +35,8 @@ fn convert_address(nibble: u8, byte: u8) -> u16 {
     address <<= 8;
     address | byte as u16
 }
+
+static FONT: &[u8] = include_bytes!("font.bin");
 
 impl<T: KeyWrapper, A: AudioWrapper> Chip8<T, A> {
     pub fn new(key_wrapper: T, audio_wrapper: A) -> Chip8<T, A> {
@@ -49,8 +53,7 @@ impl<T: KeyWrapper, A: AudioWrapper> Chip8<T, A> {
             key_wrapper: key_wrapper,
             audio_wrapper: audio_wrapper,
         };
-        let font = include_bytes!("font.bin");
-        chip8.memory[0..font.len()].copy_from_slice(font);
+        chip8.memory[0..FONT.len()].copy_from_slice(font);
         chip8
     }
     pub fn load_prog_from_file(&mut self, input_file: &mut File) -> Result<usize, Error> {
@@ -109,7 +112,7 @@ impl<T: KeyWrapper, A: AudioWrapper> Chip8<T, A> {
                     return Err("Unimplemented optcode");
                 }
                 if self.data_registers[optcode_nibble_2 as usize] ==
-                   self.data_registers[optcode_nibble_3 as usize] {
+                    self.data_registers[optcode_nibble_3 as usize] {
                     self.program_counter += 2;
                 }
             }
@@ -179,7 +182,7 @@ impl<T: KeyWrapper, A: AudioWrapper> Chip8<T, A> {
                     return Err("Unimplemented optcode");
                 }
                 if self.data_registers[optcode_nibble_2 as usize] !=
-                   self.data_registers[optcode_nibble_3 as usize] {
+                    self.data_registers[optcode_nibble_3 as usize] {
                     self.program_counter += 2;
                 }
             }
@@ -196,8 +199,8 @@ impl<T: KeyWrapper, A: AudioWrapper> Chip8<T, A> {
             0xD => {
                 self.data_registers[0xF] = 0;
                 for i in
-                    self.memory[self.address_register as usize..self.address_register as usize +
-                                                                optcode_nibble_4 as usize]
+                self.memory[self.address_register as usize..self.address_register as usize +
+                optcode_nibble_4 as usize]
                     .iter()
                     .enumerate() {
                     let (mut y_position, y) = i;
@@ -212,8 +215,8 @@ impl<T: KeyWrapper, A: AudioWrapper> Chip8<T, A> {
                         if bit == 1 {
                             let inverted = 7 - b;
                             let mut x_position =
-                                self.data_registers[optcode_nibble_2 as usize] as usize +
-                                inverted as usize;
+                            self.data_registers[optcode_nibble_2 as usize] as usize +
+                            inverted as usize;
                             x_position %= 0x40; // The screen wraps around
                             if self.frame_buffer[y_position][x_position] ^ bit == 0 {
                                 self.frame_buffer[y_position][x_position] = 0;
@@ -235,7 +238,7 @@ impl<T: KeyWrapper, A: AudioWrapper> Chip8<T, A> {
                     }
                     0xA1 => {
                         if !try!(self.key_wrapper
-                            .is_pushed(self.data_registers[optcode_nibble_2 as usize])){
+                            .is_pushed(self.data_registers[optcode_nibble_2 as usize])) {
                             self.program_counter += 2;
                         }
                     }
@@ -255,12 +258,12 @@ impl<T: KeyWrapper, A: AudioWrapper> Chip8<T, A> {
                         }
                     }
                     0x15 => self.delay_timer = self.data_registers[optcode_nibble_2 as usize],
-                    0x18 => { 
+                    0x18 => {
                         self.sound_timer = self.data_registers[optcode_nibble_2 as usize];
                         if self.sound_timer > 0 {
                             self.audio_wrapper.play();
                         }
-                    } 
+                    }
                     0x1E => {
                         self.address_register +=
                             self.data_registers[optcode_nibble_2 as usize] as u16
@@ -285,7 +288,7 @@ impl<T: KeyWrapper, A: AudioWrapper> Chip8<T, A> {
                     0x65 => {
                         for i in 0..optcode_nibble_2 as usize + 1 {
                             self.data_registers[i] = self.memory[self.address_register as usize +
-                                                                 i];
+                            i];
                         }
                     }
                     _ => {
@@ -314,5 +317,16 @@ impl<T: KeyWrapper, A: AudioWrapper> Chip8<T, A> {
             }
         }
         Ok(())
+    }
+    pub fn reboot(&mut self) {
+        self.data_registers.copy_from_slice([0; 16]);
+        self.address_register = 0;
+        self.memory.copy_from_slice([0; 0x1000]);
+        self.program_counter = 0x200; // Entry point of most programs
+        self.stack.clear();
+        self.delay_timer = 0;
+        self.sound_timer = 0;
+        self.frame_buffer.copy_from_slice([[0; 64]; 32]);
+        self.memory[0..FONT.len()].copy_from_slice(font);
     }
 }
