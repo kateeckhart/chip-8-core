@@ -4,9 +4,10 @@ use rand::Rng;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::Error;
+use std::fmt;
 
 pub trait KeyWrapper {
-    fn is_pushed(&self, u8) -> Result<bool, &'static str>;
+    fn is_pushed(&self, u8) -> bool;
     fn get_key(&self) -> Option<u8>;
 }
 
@@ -22,12 +23,40 @@ pub struct Chip8<T: KeyWrapper, A: AudioWrapper> {
     program_counter: u16,
     stack: Vec<u16>,
     delay_timer: u8,
-    pub sound_timer: u8,
-    pub frame_buffer: [[u8; 64]; 32],
+    sound_timer: u8,
+    frame_buffer: [[u8; 64]; 32],
     // Byte == zero black, byte == one white
     rng: rand::ThreadRng,
     pub key_wrapper: T,
     pub audio_wrapper: A,
+}
+
+pub struct PixelIter<'a> {
+    itery: std::iter::Enumerate<std::slice::Iter<'a, [u8; 64]>>,
+    y_pos: usize,
+    iterx: std::iter::Enumerate<std::slice::Iter<'a, u8>>,
+}
+
+impl<'a> std::iter::Iterator for PixelIter<'a> {
+    type Item = (usize, usize);
+
+    fn next(&mut self) -> Option<(usize, usize)> {
+        // x, y
+        loop {
+            if let Some((x, pixel)) = self.iterx.next() {
+                if *pixel == 1 {
+                    return Some((x, self.y_pos));
+                }
+                continue;
+            }
+            if let Some((y, iter_x)) = self.itery.next() {
+                self.iterx = iter_x.iter().enumerate();
+                self.y_pos = y;
+                continue;
+            }
+            return None;
+        }
+    }
 }
 
 fn convert_address(nibble: u8, byte: u8) -> u16 {
@@ -36,7 +65,21 @@ fn convert_address(nibble: u8, byte: u8) -> u16 {
     address | byte as u16
 }
 
-static FONT: &'static[u8] = include_bytes!("font.bin");
+static FONT: &'static [u8] = include_bytes!("font.bin");
+
+pub enum Chip8Err {
+    UnknownOptcode,
+    StackUnderFlow,
+}
+
+impl fmt::Display for Chip8Err {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Chip8Err::UnknownOptcode => write!(f, "There was an unknown optcode."),
+            Chip8Err::StackUnderFlow => write!(f, "There was a stack underflow"),
+        }
+    }
+}
 
 impl<T: KeyWrapper, A: AudioWrapper> Chip8<T, A> {
     pub fn new(key_wrapper: T, audio_wrapper: A) -> Chip8<T, A> {
@@ -61,7 +104,7 @@ impl<T: KeyWrapper, A: AudioWrapper> Chip8<T, A> {
         let mut program_mem = &mut self.memory[0x200..len];
         input_file.read(program_mem)
     }
-    pub fn run_optcode(&mut self) -> Result<(), &'static str> {
+    pub fn run_optcode(&mut self) -> Result<(), Chip8Err> {
         let optcode_byte_1 = self.memory[self.program_counter as usize];
         let optcode_nibble_1 = optcode_byte_1 >> 4;
         let optcode_nibble_2 = optcode_byte_1 & 0x0f;
@@ -71,7 +114,7 @@ impl<T: KeyWrapper, A: AudioWrapper> Chip8<T, A> {
         match optcode_nibble_1 {
             0 => {
                 if optcode_nibble_2 != 0x00 {
-                    return Err("Unimplemented optcode");
+                    return Err(Chip8Err::UnknownOptcode)
                 }
                 match optcode_byte_2 {
                     0xE0 => self.frame_buffer = [[0; 64]; 32],
@@ -80,11 +123,11 @@ impl<T: KeyWrapper, A: AudioWrapper> Chip8<T, A> {
                             self.program_counter = x;
                             return Ok(());
                         } else {
-                            return Err("Stack underflow");
+                            return Err(Chip8Err::StackUnderFlow);
                         }
                     }
                     _ => {
-                        return Err("Unimplemented optcode");
+                        return Err(Chip8Err::UnknownOptcode)
                     }
                 }
             }
@@ -109,7 +152,7 @@ impl<T: KeyWrapper, A: AudioWrapper> Chip8<T, A> {
             }
             5 => {
                 if self.data_registers[optcode_nibble_4 as usize] != 0 {
-                    return Err("Unimplemented optcode");
+                    return Err(Chip8Err::UnknownOptcode)
                 }
                 if self.data_registers[optcode_nibble_2 as usize] ==
                     self.data_registers[optcode_nibble_3 as usize] {
@@ -173,13 +216,13 @@ impl<T: KeyWrapper, A: AudioWrapper> Chip8<T, A> {
                         self.data_registers[0xF] = msb;
                     }
                     _ => {
-                        return Err("Unimplemented optcode");
+                        return Err(Chip8Err::UnknownOptcode)
                     }
                 }
             }
             9 => {
                 if optcode_nibble_4 != 0 {
-                    return Err("Unimplemented optcode");
+                    return Err(Chip8Err::UnknownOptcode)
                 }
                 if self.data_registers[optcode_nibble_2 as usize] !=
                     self.data_registers[optcode_nibble_3 as usize] {
@@ -231,19 +274,19 @@ impl<T: KeyWrapper, A: AudioWrapper> Chip8<T, A> {
             0xE => {
                 match optcode_byte_2 {
                     0x9E => {
-                        if try!(self.key_wrapper
-                            .is_pushed(self.data_registers[optcode_nibble_2 as usize])) {
+                        if self.key_wrapper
+                            .is_pushed(self.data_registers[optcode_nibble_2 as usize]) {
                             self.program_counter += 2;
                         }
                     }
                     0xA1 => {
-                        if !try!(self.key_wrapper
-                            .is_pushed(self.data_registers[optcode_nibble_2 as usize])) {
+                        if !self.key_wrapper
+                            .is_pushed(self.data_registers[optcode_nibble_2 as usize]) {
                             self.program_counter += 2;
                         }
                     }
                     _ => {
-                        return Err("Unimplemented optcode");
+                        return Err(Chip8Err::UnknownOptcode)
                     }
                 }
             }
@@ -292,18 +335,18 @@ impl<T: KeyWrapper, A: AudioWrapper> Chip8<T, A> {
                         }
                     }
                     _ => {
-                        return Err("Unimplemented optcode");
+                        return Err(Chip8Err::UnknownOptcode)
                     }
                 }
             }
             _ => {
-                return Err("Unimplemented optcode");
+                return Err(Chip8Err::UnknownOptcode)
             }
         }
         self.program_counter += 2;
         Ok(())
     }
-    pub fn run_vblank(&mut self) -> Result<(), &str> {
+    pub fn run_vblank(&mut self) -> Result<(), Chip8Err> {
         for _ in 0..11 {
             try!(self.run_optcode())
         }
@@ -328,5 +371,15 @@ impl<T: KeyWrapper, A: AudioWrapper> Chip8<T, A> {
         self.sound_timer = 0;
         self.frame_buffer.copy_from_slice(&[[0; 64]; 32]);
         self.memory[0..FONT.len()].copy_from_slice(FONT);
+    }
+    pub fn frame_iter(&self) -> PixelIter {
+        let mut itery = self.frame_buffer.iter().enumerate();
+        let (y_pos, x) = itery.next().unwrap();
+        let iterx = x.iter().enumerate();
+        PixelIter {
+            itery: itery,
+            y_pos: y_pos,
+            iterx: iterx,
+        }
     }
 }
