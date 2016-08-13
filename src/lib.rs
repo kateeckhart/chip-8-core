@@ -5,6 +5,9 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::io::Error;
 use std::fmt;
+use std::iter::Enumerate;
+use std::iter::Iterator;
+use std::slice;
 
 pub trait KeyWrapper {
     fn is_pushed(&self, u8) -> bool;
@@ -24,33 +27,117 @@ pub struct Chip8<T: KeyWrapper, A: AudioWrapper> {
     stack: Vec<u16>,
     delay_timer: u8,
     sound_timer: u8,
-    frame_buffer: [[u8; 64]; 32],
+    frame_buffer: [[u8; 8]; 32],
     // Byte == zero black, byte == one white
     rng: rand::ThreadRng,
     pub key_wrapper: T,
     pub audio_wrapper: A,
 }
 
-pub struct PixelIter<'a> {
-    itery: std::iter::Enumerate<std::slice::Iter<'a, [u8; 64]>>,
-    y_pos: usize,
-    iterx: std::iter::Enumerate<std::slice::Iter<'a, u8>>,
+pub struct BitIter<'a> {
+    slice_iter: std::slice::Iter<'a, u8>,
+    current_byte: u8,
+    bit_mask: u8,
 }
 
-impl<'a> std::iter::Iterator for PixelIter<'a> {
+impl<'a> BitIter<'a> {
+    fn new(slice: &[u8]) -> BitIter {
+        let mut iter = slice.iter();
+        let current_byte;
+        let bit_mask;
+        if let Some(byte) = iter.next() {
+            current_byte = *byte;
+            bit_mask = 1 << 7;
+        } else {
+            current_byte = 0;
+            bit_mask = 0;
+        }
+        BitIter {
+            slice_iter: iter,
+            current_byte: current_byte,
+            bit_mask: bit_mask,
+        }
+    }
+}
+
+impl<'a> Iterator for BitIter<'a> {
+    type Item = bool;
+
+    fn next(&mut self) -> Option<bool> {
+        if self.bit_mask > 0 {
+            let return_val = self.current_byte & self.bit_mask != 0;
+            self.bit_mask >>= 1;
+            Some(return_val)
+        } else if let Some(byte) = self.slice_iter.next() {
+            self.current_byte = *byte;
+            self.bit_mask = 1 << 7;
+            self.next()
+        } else {
+            None
+        }
+    }
+}
+
+struct MutBit<'a> {
+    slice: &'a mut [u8],
+    index: usize,
+    bit_mask: u8,
+}
+
+impl<'a> MutBit<'a> {
+    fn new(slice: &mut [u8]) -> MutBit {
+        let bit_mask = 1 << 7;
+        MutBit {
+            slice: slice,
+            index: 0,
+            bit_mask: bit_mask,
+        }
+    }
+
+    fn next(&mut self) {
+        self.bit_mask >>= 1;
+        if self.bit_mask == 0 {
+            self.bit_mask = 1 << 7;
+            self.index += 1;
+            if self.index >= self.slice.len() {
+                self.index = 0;
+            }
+        }
+    }
+
+    fn toggle(&mut self) -> bool {
+        let return_val = self.slice[self.index] & self.bit_mask != 0;
+        self.slice[self.index] ^= self.bit_mask;
+        return_val
+    }
+
+    fn skip(&mut self, skip: u8) {
+        for _ in 0..skip {
+            self.next()
+        }
+    }
+}
+
+pub struct PixelIter<'a> {
+    itery: Enumerate<slice::Iter<'a, [u8; 8]>>,
+    y_pos: usize,
+    iterx: Enumerate<BitIter<'a>>,
+}
+
+impl<'a> Iterator for PixelIter<'a> {
     type Item = (usize, usize);
 
     fn next(&mut self) -> Option<(usize, usize)> {
         // x, y
         loop {
             if let Some((x, pixel)) = self.iterx.next() {
-                if *pixel == 1 {
+                if pixel {
                     return Some((x, self.y_pos));
                 }
                 continue;
             }
             if let Some((y, iter_x)) = self.itery.next() {
-                self.iterx = iter_x.iter().enumerate();
+                self.iterx = BitIter::new(iter_x).enumerate();
                 self.y_pos = y;
                 continue;
             }
@@ -91,7 +178,7 @@ impl<T: KeyWrapper, A: AudioWrapper> Chip8<T, A> {
             stack: Vec::with_capacity(16),
             delay_timer: 0,
             sound_timer: 0,
-            frame_buffer: [[0; 64]; 32],
+            frame_buffer: [[0; 8]; 32],
             rng: rand::thread_rng(),
             key_wrapper: key_wrapper,
             audio_wrapper: audio_wrapper,
@@ -117,7 +204,7 @@ impl<T: KeyWrapper, A: AudioWrapper> Chip8<T, A> {
                     return Err(Chip8Err::UnknownOptcode)
                 }
                 match optcode_byte_2 {
-                    0xE0 => self.frame_buffer = [[0; 64]; 32],
+                    0xE0 => self.frame_buffer = [[0; 8]; 32],
                     0xEE => {
                         if let Some(x) = self.stack.pop() {
                             self.program_counter = x;
@@ -241,33 +328,18 @@ impl<T: KeyWrapper, A: AudioWrapper> Chip8<T, A> {
             }
             0xD => {
                 self.data_registers[0xF] = 0;
-                for i in
-                self.memory[self.address_register as usize..self.address_register as usize +
-                optcode_nibble_4 as usize]
-                    .iter()
-                    .enumerate() {
-                    let (mut y_position, y) = i;
-                    y_position += self.data_registers[optcode_nibble_3 as usize] as usize;
-                    if y_position > 0x1F {
-                        continue;
-                    }
-                    for b in 0..8 {
-                        let b_shifted = 1 << b;
-                        let mut bit = y & b_shifted;
-                        bit >>= b;
-                        if bit == 1 {
-                            let inverted = 7 - b;
-                            let mut x_position =
-                            self.data_registers[optcode_nibble_2 as usize] as usize +
-                            inverted as usize;
-                            x_position %= 0x40; // The screen wraps around
-                            if self.frame_buffer[y_position][x_position] ^ bit == 0 {
-                                self.frame_buffer[y_position][x_position] = 0;
-                                self.data_registers[0xF] = 1;
-                            } else {
-                                self.frame_buffer[y_position][x_position] = 1;
-                            }
+                for (line_n, line) in self.frame_buffer.iter_mut()
+                    .skip(self.data_registers[optcode_nibble_3 as usize] as usize)
+                    .take(optcode_nibble_4 as usize).enumerate() {
+                    let mut mut_bit = MutBit::new(line);
+                    mut_bit.skip(self.data_registers[optcode_nibble_2 as usize]);
+                    for bit in BitIter::new(
+                        &self.memory[self.address_register as usize + line_n..self.memory.len()])
+                        .take(8) {
+                        if bit && mut_bit.toggle() {
+                            self.data_registers[0xF] = 1;
                         }
+                        mut_bit.next();
                     }
                 }
             }
@@ -369,13 +441,13 @@ impl<T: KeyWrapper, A: AudioWrapper> Chip8<T, A> {
         self.stack.clear();
         self.delay_timer = 0;
         self.sound_timer = 0;
-        self.frame_buffer.copy_from_slice(&[[0; 64]; 32]);
+        self.frame_buffer = [[0; 8]; 32];
         self.memory[0..FONT.len()].copy_from_slice(FONT);
     }
     pub fn frame_iter(&self) -> PixelIter {
         let mut itery = self.frame_buffer.iter().enumerate();
         let (y_pos, x) = itery.next().unwrap();
-        let iterx = x.iter().enumerate();
+        let iterx = BitIter::new(x).enumerate();
         PixelIter {
             itery: itery,
             y_pos: y_pos,
