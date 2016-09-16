@@ -1,7 +1,12 @@
 [package]
 name = "chip_8_core"
-version = "2.0.0"
+version = "3.0.0"
 authors = ["Alex Eckhart <eckhartalex@gmail.com>"]
+build = "build.rs"
+
+[build-dependencies]
+serde_codegen = "0.8"
 
 [dependencies]
 rand = "0.3"
+serde = "0.8"
